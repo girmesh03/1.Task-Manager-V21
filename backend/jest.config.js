@@ -1,0 +1,22 @@
+export default {
+  testEnvironment: "node",
+  transform: {},
+  testMatch: ["**/__tests__/**/*.js", "**/?(*.)+(spec|test).js"],
+  collectCoverageFrom: [
+    "models/**/*.js",
+    "controllers/**/*.js",
+    "middleware/**/*.js",
+    "services/**/*.js",
+    "utils/**/*.js",
+    "!models/plugins/**",
+    "!**/*.test.js",
+    "!**/*.spec.js",
+  ],
+  setupFilesAfterEnv: ["<rootDir>/tests/setup.js"],
+  testTimeout: 30000,
+  preset: null,
+  moduleFileExtensions: ["js", "json"],
+  testPathIgnorePatterns: ["/node_modules/"],
+  verbose: false,
+  silent: false,
+};

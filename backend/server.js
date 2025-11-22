@@ -1,0 +1,48 @@
+import app from "./app.js";
+import connectDB from "./config/database.js";
+import { createServer } from "http";
+import { Server } from "socket.io";
+
+const PORT = process.env.PORT || 4000;
+
+// Connect to MongoDB
+connectDB();
+
+// Create HTTP server
+const server = createServer(app);
+
+// Initialize Socket.IO
+const io = new Server(server, {
+  cors: {
+    origin: process.env.ALLOWED_ORIGINS?.split(",") || [
+      "http://localhost:3000",
+      "http://localhost:5173",
+    ],
+    credentials: true,
+  },
+});
+
+// Make io accessible to the app
+app.set("io", io);
+
+// Start server
+server.listen(PORT, () => {
+  console.log(
+    `🚀 Server running on port ${PORT} in ${process.env.NODE_ENV} mode`
+  );
+});
+
+// Graceful shutdown
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received. Shutting down gracefully...");
+  server.close(() => {
+    console.log("Process terminated");
+  });
+});
+
+process.on("SIGINT", () => {
+  console.log("SIGINT received. Shutting down gracefully...");
+  server.close(() => {
+    console.log("Process terminated");
+  });
+});
