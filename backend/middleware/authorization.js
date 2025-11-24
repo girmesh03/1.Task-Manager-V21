@@ -1,16 +1,20 @@
 import CustomError from "../utils/CustomError.js";
+import { USER_ROLES } from "../constants/index.js";
 
 /**
  * Authorization Middleware
  * Implements role-based access control with multi-level scoping
  * Supports: own, ownDept, crossDept, crossOrg scoping levels
+ * On authorization the word own referes to a user who uploadedBy
+ * createdBy, assignees (if included in assignees array), assignedBy
+ * recipients (if included in recipients array) and sender.
  */
 
 // Authorization Matrix Configuration
 // Defines what each role can access at different scope levels
 const AUTHORIZATION_MATRIX = {
   // SuperAdmin: Full organization access + platform management
-  SuperAdmin: {
+  [USER_ROLES.SUPER_ADMIN]: {
     own: ["read", "write", "delete"],
     ownDept: ["read", "write", "delete"],
     crossDept: ["read", "write", "delete"],
@@ -28,7 +32,7 @@ const AUTHORIZATION_MATRIX = {
   },
 
   // Admin: Department head with cross-department read access
-  Admin: {
+  [USER_ROLES.ADMIN]: {
     own: ["read", "write", "delete"],
     ownDept: ["read", "write", "delete"],
     crossDept: ["read"], // Can view other departments in same org
@@ -46,7 +50,7 @@ const AUTHORIZATION_MATRIX = {
   },
 
   // Manager: Assistant department head with limited cross-department access
-  Manager: {
+  [USER_ROLES.MANAGER]: {
     own: ["read", "write", "delete"],
     ownDept: ["read", "write"],
     crossDept: ["read"], // Limited read access to other departments
@@ -64,7 +68,7 @@ const AUTHORIZATION_MATRIX = {
   },
 
   // User: Regular employee with own data and department task access
-  User: {
+  [USER_ROLES.USER]: {
     own: ["read", "write"],
     ownDept: ["read"], // Can view department data
     crossDept: [], // No cross-department access
@@ -83,6 +87,7 @@ const AUTHORIZATION_MATRIX = {
 };
 
 /**
+/**
  * Determine the scope level between the requesting user and target resource
  * @param {Object} user - Requesting user object
  * @param {Object} targetResource - Target resource object
@@ -91,10 +96,16 @@ const AUTHORIZATION_MATRIX = {
  */
 const determineScopeLevel = (user, targetResource, resourceType) => {
   // Handle different resource structures
-  let targetUserId, targetOrgId, targetDeptId;
+  let targetOrgId, targetDeptId;
 
   if (resourceType === "user") {
-    targetUserId = targetResource._id?.toString() || targetResource.toString();
+    // For user resources, check if it's the same user
+    const targetUserId =
+      targetResource._id?.toString() || targetResource.toString();
+    if (targetUserId === user._id.toString()) {
+      return "own";
+    }
+
     targetOrgId =
       targetResource.organization?._id?.toString() ||
       targetResource.organization?.toString();
@@ -109,30 +120,26 @@ const determineScopeLevel = (user, targetResource, resourceType) => {
       targetResource.organization?.toString();
     targetDeptId = targetResource._id?.toString() || targetResource.toString();
   } else {
-    // For tasks, materials, vendors, etc.
+    // For tasks, materials, vendors, notifications, attachments, etc.
     targetOrgId =
       targetResource.organization?._id?.toString() ||
       targetResource.organization?.toString();
     targetDeptId =
       targetResource.department?._id?.toString() ||
       targetResource.department?.toString();
-    targetUserId =
-      targetResource.createdBy?._id?.toString() ||
-      targetResource.createdBy?.toString();
+
+    // Check if user owns this resource based on various ownership fields
+    if (isUserOwner(user._id.toString(), targetResource)) {
+      return "own";
+    }
   }
 
   const userOrgId = user.organization._id.toString();
   const userDeptId = user.department._id.toString();
-  const userId = user._id.toString();
 
   // Check if user is platform admin
   const isPlatformAdmin =
-    req.user.isPlatformUser || req.user.organization.isPlatformOrg;
-
-  // Own resource (user owns the resource)
-  if (targetUserId && targetUserId === userId) {
-    return "own";
-  }
+    user.isPlatformUser || user.organization.isPlatformOrg;
 
   // Cross-organization access (only for platform admins)
   if (targetOrgId && targetOrgId !== userOrgId) {
@@ -391,6 +398,46 @@ export const requireDepartmentScope = (req, res, next) => {
 };
 
 /**
+ * Check if user owns a resource based on various ownership fields
+ * @param {string} userId - User ID to check ownership for
+ * @param {Object} targetResource - Target resource object
+ * @returns {boolean} True if user owns the resource
+ */
+export const isUserOwner = (userId, targetResource) => {
+  // Check direct ownership fields
+  const ownershipFields = ["uploadedBy", "createdBy", "assignedBy", "sender"];
+
+  // Check single ownership fields
+  for (const field of ownershipFields) {
+    const fieldValue = targetResource[field];
+    if (fieldValue) {
+      const fieldId = fieldValue._id?.toString() || fieldValue.toString();
+      if (fieldId === userId) {
+        return true;
+      }
+    }
+  }
+
+  // Check array ownership fields (assignees, recipients)
+  const arrayOwnershipFields = ["assignees", "recipients"];
+
+  for (const field of arrayOwnershipFields) {
+    const fieldArray = targetResource[field];
+    if (Array.isArray(fieldArray)) {
+      const isInArray = fieldArray.some((item) => {
+        const itemId = item._id?.toString() || item.toString();
+        return itemId === userId;
+      });
+      if (isInArray) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
+/**
  * Resource ownership middleware
  * Checks if user owns the resource or has appropriate permissions
  * @param {string} resourceModel - Mongoose model name
@@ -436,5 +483,6 @@ export default {
   requireResourceOwnership,
   hasPermission,
   determineScopeLevel,
+  isUserOwner,
   AUTHORIZATION_MATRIX,
 };

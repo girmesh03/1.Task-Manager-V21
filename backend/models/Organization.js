@@ -102,12 +102,12 @@ const organizationSchema = new mongoose.Schema(
 organizationSchema.plugin(mongoosePaginate);
 organizationSchema.plugin(softDeletePlugin, {
   cascadeDelete: [
-    { model: "Department", field: "organization", deletedBy: true },
-    { model: "User", field: "organization", deletedBy: true },
-    { model: "BaseTask", field: "organization", deletedBy: true },
-    { model: "Material", field: "organization", deletedBy: true },
-    { model: "Vendor", field: "organization", deletedBy: true },
-    { model: "Notification", field: "organization", deletedBy: true },
+    { model: "Department", field: "organization", propagateDeletedBy: true },
+    { model: "User", field: "organization", propagateDeletedBy: true },
+    { model: "BaseTask", field: "organization", propagateDeletedBy: true },
+    { model: "Material", field: "organization", propagateDeletedBy: true },
+    { model: "Vendor", field: "organization", propagateDeletedBy: true },
+    { model: "Notification", field: "organization", propagateDeletedBy: true },
   ],
 });
 
@@ -174,5 +174,7 @@ organizationSchema.methods.isPlatformOrganization = function () {
 };
 
 const Organization = mongoose.model("Organization", organizationSchema);
+
+// TTL index will be managed by the centralized TTL configuration system
 
 export default Organization;

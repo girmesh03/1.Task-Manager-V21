@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 import softDeletePlugin from "./plugins/softDelete.js";
-import { REGEX_PATTERNS } from "../constants/index.js";
+import {
+  REGEX_PATTERNS,
+  ATTACHMENT_MODELS_ARRAY,
+  ATTACHMENT_TYPES_ARRAY,
+  ATTACHMENT_TYPES,
+} from "../constants/index.js";
 import CustomError from "../utils/CustomError.js";
 
 const attachmentSchema = new mongoose.Schema(
@@ -27,16 +32,19 @@ const attachmentSchema = new mongoose.Schema(
       required: [true, "File size is required"],
       min: [1, "File size must be greater than 0"],
     },
-    url: {
-      type: String,
-      required: [true, "Attachment URL is required"],
-      trim: true,
-      match: [REGEX_PATTERNS.URL, "Attachment URL must be a valid URL"],
-    },
-    publicId: {
-      type: String,
-      required: [true, "Attachment public ID is required"],
-      trim: true,
+    // Cloudinary integration structure
+    cloudinary: {
+      url: {
+        type: String,
+        required: [true, "Attachment URL is required"],
+        trim: true,
+        match: [REGEX_PATTERNS.URL, "Attachment URL must be a valid URL"],
+      },
+      publicId: {
+        type: String,
+        required: [true, "Attachment public ID is required"],
+        trim: true,
+      },
     },
     // Polymorphic relationship - can be attached to different models
     attachedTo: {
@@ -48,9 +56,10 @@ const attachmentSchema = new mongoose.Schema(
       type: String,
       required: [true, "Attached to model is required"],
       enum: {
-        values: ["BaseTask", "TaskActivity", "TaskComment"],
-        message:
-          "Attached to model must be one of: BaseTask, TaskActivity, TaskComment",
+        values: ATTACHMENT_MODELS_ARRAY,
+        message: `Attached to model must be one of: ${ATTACHMENT_MODELS_ARRAY.join(
+          ", "
+        )}`,
       },
       index: true,
     },
@@ -76,9 +85,10 @@ const attachmentSchema = new mongoose.Schema(
     fileCategory: {
       type: String,
       enum: {
-        values: ["image", "document", "video", "audio", "other"],
-        message:
-          "File category must be one of: image, document, video, audio, other",
+        values: ATTACHMENT_TYPES_ARRAY,
+        message: `File category must be one of: ${ATTACHMENT_TYPES_ARRAY.join(
+          ", "
+        )}`,
       },
       required: [true, "File category is required"],
     },
@@ -185,11 +195,11 @@ attachmentSchema.pre("save", async function (next) {
       const mimeType = this.mimeType.toLowerCase();
 
       if (mimeType.startsWith("image/")) {
-        this.fileCategory = "image";
+        this.fileCategory = ATTACHMENT_TYPES.IMAGE;
       } else if (mimeType.startsWith("video/")) {
-        this.fileCategory = "video";
+        this.fileCategory = ATTACHMENT_TYPES.VIDEO;
       } else if (mimeType.startsWith("audio/")) {
-        this.fileCategory = "audio";
+        this.fileCategory = ATTACHMENT_TYPES.AUDIO;
       } else if (
         mimeType.includes("pdf") ||
         mimeType.includes("document") ||
@@ -197,9 +207,9 @@ attachmentSchema.pre("save", async function (next) {
         mimeType.includes("spreadsheet") ||
         mimeType.includes("presentation")
       ) {
-        this.fileCategory = "document";
+        this.fileCategory = ATTACHMENT_TYPES.DOCUMENT;
       } else {
-        this.fileCategory = "other";
+        this.fileCategory = ATTACHMENT_TYPES.OTHER;
       }
     }
     next();
@@ -291,21 +301,23 @@ attachmentSchema.statics.getStorageStats = async function (organizationId) {
 
 // Instance method to check if file is an image
 attachmentSchema.methods.isImage = function () {
-  return this.fileCategory === "image";
+  return this.fileCategory === ATTACHMENT_TYPES.IMAGE;
 };
 
 // Instance method to check if file is a document
 attachmentSchema.methods.isDocument = function () {
-  return this.fileCategory === "document";
+  return this.fileCategory === ATTACHMENT_TYPES.DOCUMENT;
 };
 
 // Instance method to get secure URL (for future implementation with signed URLs)
 attachmentSchema.methods.getSecureUrl = function () {
   // For now, return the URL directly
   // In production, this could generate signed URLs for additional security
-  return this.url;
+  return this.cloudinary.url;
 };
 
 const Attachment = mongoose.model("Attachment", attachmentSchema);
+
+// TTL index will be managed by the centralized TTL configuration system
 
 export default Attachment;

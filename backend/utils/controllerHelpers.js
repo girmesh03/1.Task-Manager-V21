@@ -27,7 +27,9 @@ export const extractUserContext = (req) => {
     // User details for convenience
     userRole: req.user.role,
     isPlatformAdmin:
-      req.user.isPlatformUser && req.user.organization.isPlatformOrg && [USER_ROLES.SUPER_ADMIN].includes(req.user.role),
+      req.user.isPlatformUser &&
+      req.user.organization.isPlatformOrg &&
+      [USER_ROLES.SUPER_ADMIN].includes(req.user.role),
 
     // New boolean field access for convenience
     isPlatformOrg: req.user.organization.isPlatformOrg,
@@ -119,13 +121,125 @@ export const createPaginationResponse = (paginateResult, docs = null) => {
       totalCount: paginateResult.totalDocs,
       hasNextPage: paginateResult.hasNextPage,
       hasPrevPage: paginateResult.hasPrevPage,
+      nextPage: paginateResult.nextPage,
+      prevPage: paginateResult.prevPage,
     },
   };
 };
 
+/**
+ * Create standardized success response format
+ * @param {*} data - Response data
+ * @param {string} message - Success message
+ * @param {Object} meta - Additional metadata
+ * @returns {Object} Standardized success response
+ */
+export const createSuccessResponse = (data, message = "Success", meta = {}) => {
+  return {
+    success: true,
+    message,
+    data,
+    ...meta,
+    timestamp: new Date().toISOString(),
+  };
+};
+
+/**
+ * Create standardized error response format
+ * @param {string} message - Error message
+ * @param {string} code - Error code
+ * @param {Array} details - Error details
+ * @param {Object} meta - Additional metadata
+ * @returns {Object} Standardized error response
+ */
+export const createErrorResponse = (
+  message,
+  code = null,
+  details = [],
+  meta = {}
+) => {
+  return {
+    success: false,
+    error: {
+      message,
+      code,
+      details,
+      timestamp: new Date().toISOString(),
+      ...meta,
+    },
+  };
+};
+
+/**
+ * Create filtering options for database queries
+ * @param {Object} req - Express request object
+ * @param {Array} allowedFields - Fields allowed for filtering
+ * @returns {Object} Filter object for database query
+ */
+export const createFilterOptions = (req, allowedFields = []) => {
+  const { orgId, deptId } = extractUserContext(req);
+  const filters = {
+    organization: orgId,
+    department: deptId,
+    isDeleted: { $ne: true }, // Always exclude soft deleted records
+  };
+
+  // Add user-provided filters for allowed fields
+  if (req.validatedData) {
+    allowedFields.forEach((field) => {
+      if (req.validatedData[field] !== undefined) {
+        filters[field] = req.validatedData[field];
+      }
+    });
+  }
+
+  return filters;
+};
+
+/**
+ * Create search options for text-based queries
+ * @param {Object} req - Express request object
+ * @param {Array} searchFields - Fields to search in
+ * @returns {Object} Search filter object
+ */
+export const createSearchOptions = (req, searchFields = []) => {
+  const { search } = req.validatedData || {};
+
+  if (!search || searchFields.length === 0) {
+    return {};
+  }
+
+  {
+    $or: searchFields.map((field) => ({
+      [field]: { $regex: search, $options: "i" },
+    }));
+  }
+};
+
+/**
+ * Combine filters and search options
+ * @param {Object} filters - Base filters
+ * @param {Object} searchOptions - Search options
+ * @returns {Object} Combined query object
+ */
+export const combineQueryOptions = (filters, searchOptions) => {
+  if (Object.keys(searchOptions).length === 0) {
+    return filters;
+  }
+
+  return {
+    ...filters,
+    ...searchOptions,
+  };
+};
 export default {
   extractUserContext,
   extractResourceIds,
   createPaginationOptions,
   createPaginationResponse,
+  createSuccessResponse,
+  createErrorResponse,
+  createFilterOptions,
+  createSearchOptions,
+  combineQueryOptions,
 };

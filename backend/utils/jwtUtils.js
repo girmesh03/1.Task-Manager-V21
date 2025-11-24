@@ -256,6 +256,16 @@ export const refreshAccessToken = async (refreshToken, getUserById) => {
     throw CustomError.unauthorized("User not found");
   }
 
+  // Check if user is deleted
+  if (user.isDeleted) {
+    throw CustomError.unauthorized("User account has been deactivated");
+  }
+
+  // Validate user has required fields for token generation
+  if (!user.organization || !user.department) {
+    throw CustomError.unauthorized("User account is incomplete");
+  }
+
   // Generate new access token
   const newAccessToken = generateAccessToken({
     userId: user._id,
@@ -270,6 +280,43 @@ export const refreshAccessToken = async (refreshToken, getUserById) => {
   return { accessToken: newAccessToken, user };
 };
 
+/**
+ * Validate token payload structure
+ * @param {Object} payload - Token payload to validate
+ * @returns {boolean} True if payload is valid
+ */
+export const validateTokenPayload = (payload) => {
+  const requiredFields = [
+    "userId",
+    "email",
+    "role",
+    "organizationId",
+    "departmentId",
+  ];
+  return requiredFields.every((field) => payload[field] !== undefined);
+};
+
+/**
+ * Extract user context from token payload
+ * @param {Object} payload - Decoded token payload
+ * @returns {Object} User context object
+ */
+export const extractUserContextFromToken = (payload) => {
+  if (!validateTokenPayload(payload)) {
+    throw CustomError.unauthorized("Invalid token payload structure");
+  }
+
+  return {
+    userId: payload.userId,
+    email: payload.email,
+    role: payload.role,
+    organizationId: payload.organizationId,
+    departmentId: payload.departmentId,
+    isPlatformUser: payload.isPlatformUser || false,
+    isHod: payload.isHod || false,
+  };
+};
+
 export default {
   generateAccessToken,
   generateRefreshToken,
@@ -280,4 +327,6 @@ export default {
   clearAuthCookies,
   extractTokensFromCookies,
   refreshAccessToken,
+  validateTokenPayload,
+  extractUserContextFromToken,
 };

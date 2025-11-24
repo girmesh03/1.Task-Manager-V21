@@ -6,6 +6,8 @@ import softDeletePlugin from "./plugins/softDelete.js";
 import {
   USER_ROLES_ARRAY,
   USER_STATUS_ARRAY,
+  USER_ROLES,
+  USER_STATUS,
   REGEX_PATTERNS,
 } from "../constants/index.js";
 import { nowUTC } from "../utils/timezoneUtils.js";
@@ -48,7 +50,7 @@ const userSchema = new mongoose.Schema(
         message: `Role must be one of: ${USER_ROLES_ARRAY.join(", ")}`,
       },
       required: [true, "Role is required"],
-      default: "User",
+      default: USER_ROLES.USER,
     },
     position: {
       type: String,
@@ -73,7 +75,7 @@ const userSchema = new mongoose.Schema(
         values: USER_STATUS_ARRAY,
         message: `Status must be one of: ${USER_STATUS_ARRAY.join(", ")}`,
       },
-      default: "offline",
+      default: USER_STATUS.OFFLINE,
     },
     organization: {
       type: mongoose.Schema.Types.ObjectId,
@@ -142,13 +144,13 @@ userSchema.index({ organization: 1, role: 1 });
 userSchema.index({ department: 1, role: 1 });
 userSchema.index({ organization: 1, isDeleted: 1 });
 
-// Compound index for HOD position uniqueness within department
+// Compound index for HOD uniqueness within department (only one HOD per department)
 userSchema.index(
-  { department: 1, position: 1, role: 1 },
+  { department: 1, isHod: 1 },
   {
     unique: true,
     partialFilterExpression: {
-      role: { $in: ["SuperAdmin", "Admin"] },
+      isHod: true,
       isDeleted: { $ne: true },
     },
   }
@@ -307,5 +309,7 @@ userSchema.statics.authenticate = async function (
 };
 
 const User = mongoose.model("User", userSchema);
+
+// TTL index will be managed by the centralized TTL configuration system
 
 export default User;

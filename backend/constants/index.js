@@ -95,9 +95,13 @@ export const NOTIFICATION_TYPES = {
   TASK_ASSIGNED: "task_assigned",
   TASK_UPDATED: "task_updated",
   TASK_COMPLETED: "task_completed",
+  TASK_OVERDUE: "task_overdue",
   COMMENT_ADDED: "comment_added",
   MENTION: "mention",
   ACTIVITY_ADDED: "activity_added",
+  USER_JOINED: "user_joined",
+  SYSTEM_ALERT: "system_alert",
+  REMINDER: "reminder",
   SYSTEM: "system",
 };
 
@@ -126,6 +130,7 @@ export const ATTACHMENT_TYPES = {
   IMAGE: "image",
   DOCUMENT: "document",
   VIDEO: "video",
+  AUDIO: "audio",
   OTHER: "other",
 };
 
@@ -139,6 +144,18 @@ export const ATTACHMENT_MODELS = {
 };
 
 export const ATTACHMENT_MODELS_ARRAY = Object.values(ATTACHMENT_MODELS);
+
+// Entity Types for Polymorphic Relationships
+export const ENTITY_TYPES = {
+  BASE_TASK: "BaseTask",
+  TASK_ACTIVITY: "TaskActivity",
+  TASK_COMMENT: "TaskComment",
+  USER: "User",
+  DEPARTMENT: "Department",
+  ORGANIZATION: "Organization",
+};
+
+export const ENTITY_TYPES_ARRAY = Object.values(ENTITY_TYPES);
 
 // Validation Limits
 export const VALIDATION_LIMITS = {
@@ -225,6 +242,15 @@ export const ALLOWED_FILE_TYPES = [
   ...FILE_UPLOAD.ALLOWED_VIDEO_TYPES,
 ];
 
+// Pagination Defaults
+export const PAGINATION_DEFAULTS = {
+  PAGE: 1,
+  LIMIT: 10,
+  MAX_LIMIT: 100,
+  SORT_ORDER: "desc",
+  SORT_BY: "createdAt",
+};
+
 // Business Rules
 export const BUSINESS_RULES = {
   // RoutineTask restrictions
@@ -254,7 +280,7 @@ export const BUSINESS_RULES = {
 };
 
 // HTTP Status Codes
-export const HTTP_STATUS = {
+export const HTTP_STATUS_CODES = {
   OK: 200,
   CREATED: 201,
   NO_CONTENT: 204,
@@ -267,6 +293,9 @@ export const HTTP_STATUS = {
   TOO_MANY_REQUESTS: 429,
   INTERNAL_SERVER_ERROR: 500,
 };
+
+// Legacy alias for backward compatibility
+export const HTTP_STATUS = HTTP_STATUS_CODES;
 
 // Error Codes
 export const ERROR_CODES = {
@@ -388,11 +417,15 @@ export default {
   ATTACHMENT_TYPES_ARRAY,
   ATTACHMENT_MODELS,
   ATTACHMENT_MODELS_ARRAY,
+  ENTITY_TYPES,
+  ENTITY_TYPES_ARRAY,
   VALIDATION_LIMITS,
   FILE_UPLOAD,
   ALLOWED_FILE_TYPES,
+  PAGINATION_DEFAULTS,
   BUSINESS_RULES,
-  HTTP_STATUS,
+  HTTP_STATUS_CODES,
+  HTTP_STATUS, // Legacy alias
   ERROR_CODES,
   REGEX_PATTERNS,
   SOCKET_EVENTS,

@@ -64,7 +64,7 @@ const materialSchema = new mongoose.Schema(
       ref: "User",
       required: [true, "Created by is required"],
     },
-    // Task associations with quantity tracking
+    // Many-to-many relationship with tasks
     tasks: [
       {
         task: {
@@ -75,10 +75,6 @@ const materialSchema = new mongoose.Schema(
           type: Number,
           min: [0, "Quantity used cannot be negative"],
           default: 0,
-        },
-        assignedAt: {
-          type: Date,
-          default: Date.now,
         },
       },
     ],
@@ -106,8 +102,11 @@ const materialSchema = new mongoose.Schema(
 // Apply plugins
 materialSchema.plugin(mongoosePaginate);
 materialSchema.plugin(softDeletePlugin);
-// Compound index for unique material name within organization
-materialSchema.index({ name: 1, organization: 1 }, { unique: true });
+// Compound index for unique material name within department and organization
+materialSchema.index(
+  { name: 1, department: 1, organization: 1 },
+  { unique: true }
+);
 
 // Additional indexes for better query performance
 materialSchema.index({ organization: 1, category: 1 });
@@ -207,5 +206,7 @@ materialSchema.methods.updateTaskQuantity = function (
 };
 
 const Material = mongoose.model("Material", materialSchema);
+
+// TTL index will be managed by the centralized TTL configuration system
 
 export default Material;

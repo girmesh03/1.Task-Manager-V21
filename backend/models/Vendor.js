@@ -219,4 +219,6 @@ vendorSchema.methods.hasActiveProjects = async function (session = null) {
 
 const Vendor = mongoose.model("Vendor", vendorSchema);
 
+// TTL index will be managed by the centralized TTL configuration system
+
 export default Vendor;

@@ -57,8 +57,8 @@ const departmentSchema = new mongoose.Schema(
 departmentSchema.plugin(mongoosePaginate);
 departmentSchema.plugin(softDeletePlugin, {
   cascadeDelete: [
-    { model: "User", field: "department", deletedBy: true },
-    { model: "BaseTask", field: "department", deletedBy: true },
+    { model: "User", field: "department", propagateDeletedBy: true },
+    { model: "BaseTask", field: "department", propagateDeletedBy: true },
   ],
 });
 
@@ -173,5 +173,7 @@ departmentSchema.methods.getHOD = function (session = null) {
 };
 
 const Department = mongoose.model("Department", departmentSchema);
+
+// TTL index will be managed by the centralized TTL configuration system
 
 export default Department;
