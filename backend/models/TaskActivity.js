@@ -45,10 +45,12 @@ const taskActivitySchema = new mongoose.Schema(
       required: [true, "Created by is required"],
       index: true,
     },
-    assignedTo: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-    },
+    assignees: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     organization: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Organization",
@@ -104,14 +106,14 @@ const taskActivitySchema = new mongoose.Schema(
 taskActivitySchema.plugin(mongoosePaginate);
 taskActivitySchema.plugin(softDeletePlugin, {
   cascadeDelete: [
-    { model: "Attachment", field: "attachedTo", deletedBy: true },
+    { model: "Attachment", field: "attachedTo", propagateDeletedBy: true },
   ],
 });
 
 // Indexes for better query performance
 taskActivitySchema.index({ task: 1, createdAt: 1 });
 taskActivitySchema.index({ createdBy: 1, createdAt: -1 });
-taskActivitySchema.index({ assignedTo: 1, status: 1 });
+taskActivitySchema.index({ assignees: 1, status: 1 });
 taskActivitySchema.index({ status: 1 });
 
 // Virtual for attachments
@@ -200,7 +202,7 @@ taskActivitySchema.statics.findByUser = function (
 ) {
   return this.find({
     ...conditions,
-    $or: [{ createdBy: userId }, { assignedTo: userId }],
+    $or: [{ createdBy: userId }, { assignees: userId }],
   })
     .sort({ createdAt: -1 })
     .session(session);
@@ -225,5 +227,7 @@ taskActivitySchema.methods.getHoursVariance = function () {
 };
 
 const TaskActivity = mongoose.model("TaskActivity", taskActivitySchema);
+
+// TTL index will be managed by the centralized TTL configuration system
 
 export default TaskActivity;

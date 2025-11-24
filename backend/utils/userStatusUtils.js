@@ -1,18 +1,12 @@
 import User from "../models/User.js";
 import CustomError from "./CustomError.js";
+import { USER_STATUS } from "../constants/index.js";
 
 /**
  * User Status Tracking Utilities
  * Manages online/offline/away status with broadcasting functionality
  * Integrates with Socket.IO for real-time status updates
  */
-
-// Status constants
-export const USER_STATUS = {
-  ONLINE: "online",
-  OFFLINE: "offline",
-  AWAY: "away",
-};
 
 // Status transition rules
 const VALID_STATUS_TRANSITIONS = {
@@ -47,9 +41,9 @@ export const updateUserStatus = async (userId, status, socketIO = null) => {
 
     // Find user and get current status
     const user = await User.findById(userId)
-    .populate("organization", "name _id isPlatformOrg isDeleted")
-    .populate("department", "name _id isDeleted")
-    .select("isPlatformUser isHod isDeleted")
+      .populate("organization", "name _id isPlatformOrg isDeleted")
+      .populate("department", "name _id isDeleted")
+      .select("isPlatformUser isHod isDeleted");
 
     if (!user) {
       throw CustomError.notFound("User not found");
@@ -384,8 +378,55 @@ export const cleanupUserStatusTracking = (userId) => {
   userActivityMap.delete(userId);
 };
 
+/**
+ * Get Socket.IO room names for user
+ * @param {Object} user - User object with organization and department
+ * @returns {Array<string>} Array of room names
+ */
+export const getUserSocketRooms = (user) => {
+  const rooms = [];
+
+  if (user.organization) {
+    const orgId = user.organization._id || user.organization;
+    rooms.push(`org_${orgId}`);
+  }
+
+  if (user.department) {
+    const deptId = user.department._id || user.department;
+    rooms.push(`dept_${deptId}`);
+  }
+
+  // Add user-specific room
+  rooms.push(`user_${user._id}`);
+
+  return rooms;
+};
+
+/**
+ * Join user to appropriate Socket.IO rooms
+ * @param {Object} socket - Socket.IO socket instance
+ * @param {Object} user - User object
+ */
+export const joinUserToRooms = (socket, user) => {
+  const rooms = getUserSocketRooms(user);
+  rooms.forEach((room) => {
+    socket.join(room);
+  });
+};
+
+/**
+ * Leave user from Socket.IO rooms
+ * @param {Object} socket - Socket.IO socket instance
+ * @param {Object} user - User object
+ */
+export const leaveUserFromRooms = (socket, user) => {
+  const rooms = getUserSocketRooms(user);
+  rooms.forEach((room) => {
+    socket.leave(room);
+  });
+};
+
 export default {
-  USER_STATUS,
   updateUserStatus,
   getUserStatus,
   getMultipleUserStatus,
@@ -398,4 +439,7 @@ export default {
   handleUserDisconnect,
   initializeStatusTracking,
   cleanupUserStatusTracking,
+  getUserSocketRooms,
+  joinUserToRooms,
+  leaveUserFromRooms,
 };

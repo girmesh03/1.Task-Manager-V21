@@ -69,22 +69,26 @@ export const globalErrorHandler = (err, req, res, next) => {
     });
   }
 
-  // Default to CustomError if it's an operational error
-  if (!error.isOperational && !(error instanceof CustomError)) {
-    error = CustomError.internalServer();
+  // Default to CustomError if it's not already a CustomError
+  if (!(error instanceof CustomError)) {
+    // Preserve original status code if it exists
+    const statusCode = err.statusCode || 500;
+    error = new CustomError(
+      err.message || "Something went wrong",
+      statusCode,
+      err.code || "INTERNAL_ERROR"
+    );
   }
 
   // Send error response
   const response = {
     success: false,
-    error: error.message,
+    error: {
+      message: error.message,
+      code: error.code || "UNKNOWN_ERROR",
+    },
     timestamp: new Date().toISOString(),
   };
-
-  // Add error code if available
-  if (error.code) {
-    response.code = error.code;
-  }
 
   // Add validation errors if available
   if (error.errors) {
@@ -97,12 +101,4 @@ export const globalErrorHandler = (err, req, res, next) => {
   }
 
   res.status(error.statusCode || 500).json(response);
-};
-
-/**
- * Async error handler wrapper
- * Catches async errors and passes them to the global error handler
- */
-export const asyncHandler = (fn) => (req, res, next) => {
-  Promise.resolve(fn(req, res, next)).catch(next);
 };

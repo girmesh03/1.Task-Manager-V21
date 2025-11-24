@@ -6,6 +6,8 @@ import {
   TASK_PRIORITY_ARRAY,
   TASK_STATUS,
   TASK_PRIORITY,
+  TASK_FREQUENCY_ARRAY,
+  TASK_FREQUENCY,
 } from "../constants/index.js";
 import { nowUTC, isFuture } from "../utils/timezoneUtils.js";
 import CustomError from "../utils/CustomError.js";
@@ -42,15 +44,19 @@ const baseTaskSchema = new mongoose.Schema(
       required: [true, "Priority is required"],
       default: TASK_PRIORITY.MEDIUM,
     },
-    dueDate: {
-      type: Date,
-      validate: {
-        validator: function (value) {
-          return !value || isFuture(value);
+    materials: [
+      {
+        material: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Material",
         },
-        message: "Due date must be in the future",
+        quantityUsed: {
+          type: Number,
+          min: [0, "Quantity used cannot be negative"],
+          default: 0,
+        },
       },
-    },
+    ],
     organization: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Organization",
@@ -96,9 +102,9 @@ const baseTaskSchema = new mongoose.Schema(
 baseTaskSchema.plugin(mongoosePaginate);
 baseTaskSchema.plugin(softDeletePlugin, {
   cascadeDelete: [
-    { model: "TaskActivity", field: "task", deletedBy: true },
-    { model: "TaskComment", field: "task", deletedBy: true },
-    { model: "Attachment", field: "attachedTo", deletedBy: true },
+    { model: "TaskActivity", field: "task", propagateDeletedBy: true },
+    { model: "TaskComment", field: "task", propagateDeletedBy: true },
+    { model: "Attachment", field: "attachedTo", propagateDeletedBy: true },
   ],
 });
 
@@ -125,8 +131,8 @@ baseTaskSchema.virtual("attachments", {
   match: { attachedToModel: "BaseTask" },
 });
 
-// Virtual for materials (many-to-many relationship)
-baseTaskSchema.virtual("materials", {
+// Virtual for material references (many-to-many relationship)
+baseTaskSchema.virtual("materialRefs", {
   ref: "Material",
   localField: "_id",
   foreignField: "tasks.task",
@@ -190,13 +196,23 @@ const BaseTask = mongoose.model("BaseTask", baseTaskSchema);
 
 // RoutineTask discriminator - High-volume repetitive daily tasks with restricted features
 const routineTaskSchema = new mongoose.Schema({
+  date: {
+    type: Date,
+    required: [true, "Date is required"],
+    validate: {
+      validator: function (value) {
+        return !value || isFuture(value);
+      },
+      message: "Date must be in the future",
+    },
+  },
   frequency: {
     type: String,
     enum: {
-      values: ["Daily", "Weekly", "Monthly"],
-      message: "Frequency must be one of: Daily, Weekly, Monthly",
+      values: TASK_FREQUENCY_ARRAY,
+      message: `Frequency must be one of: ${TASK_FREQUENCY_ARRAY.join(", ")}`,
     },
-    default: "Daily",
+    default: TASK_FREQUENCY.DAILY,
   },
   estimatedDuration: {
     type: Number, // in minutes
@@ -236,6 +252,40 @@ routineTaskSchema.pre("save", function (next) {
   }
 });
 
+// Pre-validate middleware for RoutineTask restrictions on base schema
+baseTaskSchema.pre("save", function (next) {
+  try {
+    // Apply RoutineTask restrictions if this is a RoutineTask
+    if (this.taskType === "RoutineTask") {
+      // RoutineTask cannot have "To Do" status
+      if (this.status === TASK_STATUS.TO_DO) {
+        return next(
+          new CustomError(
+            `RoutineTask cannot have "${TASK_STATUS.TO_DO}" status`,
+            400,
+            "INVALID_ROUTINE_TASK_STATUS"
+          )
+        );
+      }
+
+      // RoutineTask cannot have "Low" priority
+      if (this.priority === TASK_PRIORITY.LOW) {
+        return next(
+          new CustomError(
+            `RoutineTask cannot have "${TASK_PRIORITY.LOW}" priority`,
+            400,
+            "INVALID_ROUTINE_TASK_PRIORITY"
+          )
+        );
+      }
+    }
+
+    next();
+  } catch (error) {
+    next(new CustomError(error.message, 400));
+  }
+});
+
 const RoutineTask = BaseTask.discriminator("RoutineTask", routineTaskSchema);
 
 // AssignedTask discriminator - Tasks assigned to specific users within a department
@@ -250,6 +300,16 @@ const assignedTaskSchema = new mongoose.Schema({
   assignedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
+  },
+  startDate: {
+    type: Date,
+    required: [true, "Start date is required"],
+    // validate: // can not be in past
+  },
+  dueDate: {
+    type: Date,
+    required: [true, "Due date is required"],
+    // validate: // can not be in past
   },
   assignedAt: {
     type: Date,
@@ -289,6 +349,7 @@ const AssignedTask = BaseTask.discriminator("AssignedTask", assignedTaskSchema);
 const projectTaskSchema = new mongoose.Schema({
   vendor: {
     type: mongoose.Schema.Types.ObjectId,
+    required: [true, "Vendor is required"],
     ref: "Vendor",
   },
   estimatedCost: {
@@ -303,6 +364,13 @@ const projectTaskSchema = new mongoose.Schema({
   },
   startDate: {
     type: Date,
+    required: [true, "Start date is required"],
+    // validator: // can not be in past
+  },
+  dueDate: {
+    type: Date,
+    required: [true, "Due date is required"],
+    // validator: // can not be in past
   },
   completedAt: {
     type: Date,
@@ -343,6 +411,8 @@ projectTaskSchema.methods.getCostVariance = function () {
 };
 
 const ProjectTask = BaseTask.discriminator("ProjectTask", projectTaskSchema);
+
+// TTL index will be managed by the centralized TTL configuration system
 
 // Export all models
 export { BaseTask, RoutineTask, AssignedTask, ProjectTask };

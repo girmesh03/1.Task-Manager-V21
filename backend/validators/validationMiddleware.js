@@ -11,6 +11,7 @@ import {
   ERROR_CODES,
   REGEX_PATTERNS,
   VALIDATION_LIMITS,
+  BUSINESS_RULES,
   USER_ROLES_ARRAY,
   USER_STATUS_ARRAY,
   ORGANIZATION_SIZES_ARRAY,
@@ -296,6 +297,51 @@ export const isValidObjectIdArrayInOrganization = (model) => {
 };
 
 /**
+ * Custom validator for array of ObjectIds within user's department
+ * @param {string} model - The mongoose model name
+ * @returns {Function} - Validator function
+ */
+export const isValidObjectIdArrayInDepartment = (model) => {
+  return async (values, { req }) => {
+    if (!Array.isArray(values)) {
+      throw new Error("Must be an array");
+    }
+
+    if (values.length === 0) {
+      throw new Error("Array cannot be empty");
+    }
+
+    if (!req.user || !req.user.department) {
+      throw new Error("User department not found");
+    }
+
+    // Check if all values are valid ObjectIds
+    const invalidIds = values.filter((value) => !isValidObjectId(value));
+    if (invalidIds.length > 0) {
+      throw new Error(`Invalid ObjectId format: ${invalidIds.join(", ")}`);
+    }
+
+    // Check if all ObjectIds exist in user's department
+    const Model = mongoose.model(model);
+    const query = {
+      _id: { $in: values },
+      department: req.user.department._id,
+    };
+    const existingDocs = await Model.find(query).select("_id");
+    const existingIds = existingDocs.map((doc) => doc._id.toString());
+
+    const nonExistentIds = values.filter((id) => !existingIds.includes(id));
+    if (nonExistentIds.length > 0) {
+      throw new Error(
+        `${model} not found in your department: ${nonExistentIds.join(", ")}`
+      );
+    }
+
+    return true;
+  };
+};
+
+/**
  * Custom validator to check if ObjectId exists including soft deleted records
  * @param {string} model - The mongoose model name
  * @param {string} field - The field to check (default: '_id')
@@ -316,7 +362,10 @@ export const objectIdExistsWithDeleted = (model, field = "_id") => {
       [field]: value,
       organization: req.user.organization._id,
     };
-    const exists = await Model.findOne(query).withDeleted();
+    // Select soft delete fields before accessing them (Requirement 8.5)
+    const exists = await Model.findOne(query)
+      .withDeleted()
+      .select("+isDeleted +deletedAt +deletedBy");
 
     if (!exists) {
       throw new Error(`${model} not found in your organization`);
@@ -347,7 +396,10 @@ export const objectIdExistsAndDeleted = (model, field = "_id") => {
       [field]: value,
       organization: req.user.organization._id,
     };
-    const exists = await Model.findOne(query).onlyDeleted();
+    // Select soft delete fields before accessing them (Requirement 8.5)
+    const exists = await Model.findOne(query)
+      .onlyDeleted()
+      .select("+isDeleted +deletedAt +deletedBy");
 
     if (!exists) {
       throw new Error(`${model} not found or not deleted in your organization`);
@@ -501,6 +553,101 @@ export const isValidFileSize = (size, maxSize) => {
   return true;
 };
 
+/**
+ * Custom validator for platform admin access validation
+ * @param {Function} validator - The validator function to run with platform admin privileges
+ * @returns {Function} - Validator function
+ */
+export const withPlatformAdminAccess = (validator) => {
+  return async (value, { req }) => {
+    if (!req.user) {
+      throw new Error("User not authenticated");
+    }
+
+    // Allow platform admins to bypass organization scoping
+    if (req.user.isPlatformUser) {
+      return validator(value, { req });
+    }
+
+    // For non-platform users, run the validator normally
+    return validator(value, { req });
+  };
+};
+
+/**
+ * Custom validator to check if user has HOD privileges
+ * @returns {Function} - Validator function
+ */
+export const requiresHODPrivileges = () => {
+  return (value, { req }) => {
+    if (!req.user) {
+      throw new Error("User not authenticated");
+    }
+
+    if (!req.user.isHod && !req.user.isPlatformUser) {
+      throw new Error("HOD privileges required for this operation");
+    }
+
+    return true;
+  };
+};
+
+/**
+ * Custom validator for business rule compliance
+ * @param {string} rule - The business rule to validate against
+ * @param {*} value - The value to validate
+ * @returns {Function} - Validator function
+ */
+export const validateBusinessRule = (rule) => {
+  return (value) => {
+    switch (rule) {
+      case "ROUTINE_TASK_STATUS":
+        if (BUSINESS_RULES.ROUTINE_TASK_FORBIDDEN_STATUS.includes(value)) {
+          throw new Error(
+            `RoutineTask cannot have status: ${BUSINESS_RULES.ROUTINE_TASK_FORBIDDEN_STATUS.join(
+              ", "
+            )}`
+          );
+        }
+        break;
+
+      case "ROUTINE_TASK_PRIORITY":
+        if (BUSINESS_RULES.ROUTINE_TASK_FORBIDDEN_PRIORITY.includes(value)) {
+          throw new Error(
+            `RoutineTask cannot have priority: ${BUSINESS_RULES.ROUTINE_TASK_FORBIDDEN_PRIORITY.join(
+              ", "
+            )}`
+          );
+        }
+        break;
+
+      default:
+        throw new Error(`Unknown business rule: ${rule}`);
+    }
+
+    return true;
+  };
+};
+
+/**
+ * Custom validator for conditional validation based on task type
+ * @param {string} taskType - The task type to validate against
+ * @param {Function} validator - The validator function to run conditionally
+ * @returns {Function} - Validator function
+ */
+export const conditionalValidation = (taskType, validator) => {
+  return async (value, { req }) => {
+    // Get task type from request body or params
+    const currentTaskType = req.body?.taskType || req.body?.type;
+
+    if (currentTaskType === taskType) {
+      return validator(value, { req });
+    }
+
+    return true;
+  };
+};
+
 // Export pre-configured enum validators for common use
 export const validators = {
   userRole: isValidEnum(USER_ROLES_ARRAY, "Role"),
@@ -535,11 +682,16 @@ export default {
   isValidEnumArray,
   isValidObjectIdArray,
   isValidObjectIdArrayInOrganization,
+  isValidObjectIdArrayInDepartment,
   isUniqueInOrganization,
   isUniqueInDepartment,
   isStrongPassword,
   isFutureDate,
   isAllowedFileType,
   isValidFileSize,
+  withPlatformAdminAccess,
+  requiresHODPrivileges,
+  validateBusinessRule,
+  conditionalValidation,
   validators,
 };

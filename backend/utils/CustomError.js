@@ -35,13 +35,26 @@ class CustomError extends Error {
   }
 
   /**
-   * Unauthorized - 403
+   * Forbidden - 403
    * @param {string} message - Error message
    * @param {string} code - Optional error code
    * @returns {CustomError}
    */
-  static unauthorized(message = "Unauthorized, you don't have permission", code = null) {
+  static forbidden(
+    message = "Forbidden, you don't have permission",
+    code = null
+  ) {
     return new CustomError(message, 403, code);
+  }
+
+  /**
+   * Unauthorized - 401 (alias for unauthenticated for backward compatibility)
+   * @param {string} message - Error message
+   * @param {string} code - Optional error code
+   * @returns {CustomError}
+   */
+  static unauthorized(message = "Authentication required", code = null) {
+    return new CustomError(message, 401, code);
   }
 
   /**

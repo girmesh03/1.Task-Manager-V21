@@ -25,8 +25,9 @@ dayjs.extend(timezone);
 import { globalErrorHandler } from "./middleware/errorHandler.js";
 import { notFoundHandler } from "./middleware/notFoundHandler.js";
 import { convertDatesForResponse } from "./middleware/dateConversion.js";
+import { VALIDATION_LIMITS } from "./constants/index.js";
 
-// Import routes
+// Import routes (will be available when routes are implemented)
 // import routes from "./routes/index.js";
 
 const app = express();
@@ -73,10 +74,10 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Rate limiting
+// Rate limiting using constants
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  windowMs: VALIDATION_LIMITS.RATE_LIMIT_WINDOW,
+  max: VALIDATION_LIMITS.RATE_LIMIT_MAX_REQUESTS,
   message: {
     error: "Too many requests from this IP, please try again later.",
   },
@@ -86,16 +87,19 @@ const limiter = rateLimit({
 
 app.use(limiter);
 
-// Stricter rate limiting for auth endpoints
+// Stricter rate limiting for auth endpoints using constants
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 auth requests per windowMs
+  windowMs: VALIDATION_LIMITS.RATE_LIMIT_WINDOW,
+  max: VALIDATION_LIMITS.AUTH_RATE_LIMIT_MAX_REQUESTS,
   message: {
     error: "Too many authentication attempts, please try again later.",
   },
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+// Export auth limiter for use in auth routes
+export { authLimiter };
 
 // Body parsing middleware
 app.use(express.json({ limit: "10mb" }));
@@ -126,13 +130,18 @@ app.get("/health", (req, res) => {
   });
 });
 
-// API routes
+// API routes (will be enabled when routes are implemented)
 // app.use("/api", routes);
-app.get("/", (req, res, next)=>{
-    res.status(200).json({
-        message: "Welcome to the Task Manager API",
-    })
-})
+
+// Root endpoint
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Welcome to the Task Manager SaaS API",
+    version: "1.0.0",
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // Handle 404 errors
 app.use(notFoundHandler);

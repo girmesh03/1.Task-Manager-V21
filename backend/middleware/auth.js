@@ -31,10 +31,19 @@ export const authenticate = asyncHandler(async (req, res, next) => {
     const decoded = verifyAccessToken(accessToken);
 
     // Fetch user from database with populated organization and department
+    // Select soft delete fields explicitly before accessing them
     const user = await User.findById(decoded.userId)
-      .populate("organization", "name _id")
-      .populate("department", "name _id")
-      .select("-password -refreshToken -refreshTokenExpiry");
+      .populate({
+        path: "organization",
+        select: "name _id isPlatformOrg isDeleted deletedAt deletedBy",
+      })
+      .populate({
+        path: "department",
+        select: "name _id isDeleted deletedAt deletedBy",
+      })
+      .select(
+        "-password -refreshToken -refreshTokenExpiry +isDeleted +deletedAt +deletedBy"
+      );
 
     if (!user) {
       throw CustomError.unauthorized("User not found. Please log in again.");
@@ -66,8 +75,23 @@ export const authenticate = asyncHandler(async (req, res, next) => {
       );
     }
 
-    // Attach user to request object
-    req.user = user;
+    // Attach user to request object with required context fields
+    req.user = {
+      ...user.toObject(),
+      // Ensure required fields are attached as per Requirements 3.2
+      organization: {
+        _id: user.organization._id,
+        name: user.organization.name,
+        isPlatformOrg: user.organization.isPlatformOrg || false,
+      },
+      department: {
+        _id: user.department._id,
+        name: user.department.name,
+      },
+      // Platform and HOD flags
+      isPlatformUser: user.isPlatformUser || false,
+      isHod: user.isHod || false,
+    };
 
     // Attach decoded token data for quick access
     req.tokenData = {
@@ -122,9 +146,17 @@ export const optionalAuth = asyncHandler(async (req, res, next) => {
     const decoded = verifyAccessToken(accessToken);
 
     const user = await User.findById(decoded.userId)
-      .populate("organization", "name _id")
-      .populate("department", "name _id")
-      .select("-password -refreshToken -refreshTokenExpiry");
+      .populate({
+        path: "organization",
+        select: "name _id isPlatformOrg isDeleted deletedAt deletedBy",
+      })
+      .populate({
+        path: "department",
+        select: "name _id isDeleted deletedAt deletedBy",
+      })
+      .select(
+        "-password -refreshToken -refreshTokenExpiry +isDeleted +deletedAt +deletedBy"
+      );
 
     if (
       user &&
@@ -138,7 +170,21 @@ export const optionalAuth = asyncHandler(async (req, res, next) => {
         decoded.organizationId === user.organization._id.toString() &&
         decoded.departmentId === user.department._id.toString()
       ) {
-        req.user = user;
+        // Attach user with required context fields
+        req.user = {
+          ...user.toObject(),
+          organization: {
+            _id: user.organization._id,
+            name: user.organization.name,
+            isPlatformOrg: user.organization.isPlatformOrg || false,
+          },
+          department: {
+            _id: user.department._id,
+            name: user.department.name,
+          },
+          isPlatformUser: user.isPlatformUser || false,
+          isHod: user.isHod || false,
+        };
         req.tokenData = {
           userId: decoded.userId,
           email: decoded.email,
@@ -245,17 +291,15 @@ export const requireFreshToken = (maxAgeMinutes = 30) => {
  */
 export const requirePlatformAdmin = (req, res, next) => {
   if (!req.user) {
-    return next(CustomError.unauthorized("Authentication required."));
+    throw CustomError.unauthorized("Authentication required.");
   }
 
   if (!req.user.isPlatformUser && !req.user.organization.isPlatformOrg) {
-    return next(
-      CustomError.forbidden("Platform administrator access required.")
-    );
+    throw CustomError.forbidden("Platform administrator access required.");
   }
 
   if (req.user.role !== "SuperAdmin") {
-    return next(CustomError.forbidden("Platform SuperAdmin role required."));
+    throw CustomError.forbidden("Platform SuperAdmin role required.");
   }
 
   next();

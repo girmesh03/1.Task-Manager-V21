@@ -55,12 +55,16 @@ export default function softDeletePlugin(schema, options = {}) {
     next();
   });
 
-  // Cascade soft delete to related documents
+  // Cascade soft delete and restore to related documents
   if (cascadeDelete.length > 0) {
     schema.pre("save", async function (next) {
       try {
-        if (this.isModified("isDeleted") && this.isDeleted) {
-          await executeCascadeDelete(this, this.$session());
+        if (this.isModified("isDeleted")) {
+          if (this.isDeleted) {
+            await executeCascadeDelete(this, this.$session());
+          } else {
+            await executeCascadeRestore(this, this.$session());
+          }
         }
         next();
       } catch (error) {
@@ -235,6 +239,69 @@ export default function softDeletePlugin(schema, options = {}) {
     return this.save({ session });
   };
 
+  // Transaction-based cascade delete
+  schema.statics.cascadeDeleteById = async function (id, options = {}) {
+    const { deletedBy } = options;
+    let { session } = options;
+    const shouldCreateSession = !session;
+
+    if (shouldCreateSession) {
+      session = await mongoose.startSession();
+    }
+
+    try {
+      if (shouldCreateSession) {
+        await session.withTransaction(async () => {
+          await this.softDeleteById(id, { session, deletedBy });
+        });
+      } else {
+        await this.softDeleteById(id, { session, deletedBy });
+      }
+
+      return {
+        success: true,
+        message: "Cascade delete completed successfully",
+      };
+    } catch (error) {
+      throw new Error(`Cascade delete transaction failed: ${error.message}`);
+    } finally {
+      if (shouldCreateSession) {
+        await session.endSession();
+      }
+    }
+  };
+
+  // Transaction-based cascade restore
+  schema.statics.cascadeRestoreById = async function (id, options = {}) {
+    let { session } = options;
+    const shouldCreateSession = !session;
+
+    if (shouldCreateSession) {
+      session = await mongoose.startSession();
+    }
+
+    try {
+      if (shouldCreateSession) {
+        await session.withTransaction(async () => {
+          await this.restoreById(id, { session });
+        });
+      } else {
+        await this.restoreById(id, { session });
+      }
+
+      return {
+        success: true,
+        message: "Cascade restore completed successfully",
+      };
+    } catch (error) {
+      throw new Error(`Cascade restore transaction failed: ${error.message}`);
+    } finally {
+      if (shouldCreateSession) {
+        await session.endSession();
+      }
+    }
+  };
+
   // ==================== STATIC METHODS ====================
 
   schema.statics.softDeleteById = async function (id, options = {}) {
@@ -275,29 +342,69 @@ export default function softDeletePlugin(schema, options = {}) {
   schema.statics.restoreById = async function (id, options = {}) {
     const { session } = options;
 
-    return this.findOneAndUpdate(
-      { _id: id, isDeleted: true },
-      {
-        isDeleted: false,
-        deletedAt: null,
-        deletedBy: null,
-      },
-      { new: true, session }
-    );
+    try {
+      // Get document that will be restored for cascade
+      const docToRestore = await this.findById(id)
+        .withDeleted()
+        .session(session || null);
+
+      if (!docToRestore || !docToRestore.isDeleted) {
+        return null;
+      }
+
+      const result = await this.findOneAndUpdate(
+        { _id: id, isDeleted: true },
+        {
+          isDeleted: false,
+          deletedAt: null,
+          deletedBy: null,
+        },
+        { new: true, session }
+      );
+
+      if (result && cascadeDelete.length > 0) {
+        await executeCascadeRestore(docToRestore, session);
+      }
+
+      return result;
+    } catch (error) {
+      // If we have a session, the transaction will be rolled back automatically
+      throw error;
+    }
   };
 
   schema.statics.restoreMany = async function (filter = {}, options = {}) {
     const { session } = options;
 
-    return this.updateMany(
-      { ...filter, isDeleted: true },
-      {
-        isDeleted: false,
-        deletedAt: null,
-        deletedBy: null,
-      },
-      { session }
-    );
+    try {
+      // Get documents that will be restored for cascade
+      const docsToRestore = await this.find(filter)
+        .withDeleted()
+        .session(session || null);
+      const deletedDocs = docsToRestore.filter((doc) => doc.isDeleted);
+
+      const result = await this.updateMany(
+        { ...filter, isDeleted: true },
+        {
+          isDeleted: false,
+          deletedAt: null,
+          deletedBy: null,
+        },
+        { session }
+      );
+
+      // Execute cascade restore for each document
+      if (cascadeDelete.length > 0) {
+        for (const doc of deletedDocs) {
+          await executeCascadeRestore(doc, session);
+        }
+      }
+
+      return result;
+    } catch (error) {
+      // If we have a session, the transaction will be rolled back automatically
+      throw error;
+    }
   };
 
   schema.statics.findWithDeleted = function (conditions = {}) {
@@ -333,13 +440,29 @@ export default function softDeletePlugin(schema, options = {}) {
       // Check if there's a non-TTL index on deletedAt that needs to be replaced
       const nonTTLIndex = indexes["deletedAt_1"];
       if (nonTTLIndex && !nonTTLIndex.expireAfterSeconds) {
-        // Drop the existing non-TTL index
-        await this.collection.dropIndex("deletedAt_1");
+        try {
+          // Drop the existing non-TTL index
+          await this.collection.dropIndex("deletedAt_1");
+        } catch (dropError) {
+          // Index might not exist, which is fine
+          console.warn(
+            `Could not drop non-TTL index deletedAt_1:`,
+            dropError.message
+          );
+        }
       }
 
       // Drop existing TTL index if it has different configuration
       if (existingTTLIndex) {
-        await this.collection.dropIndex(ttlIndexName);
+        try {
+          await this.collection.dropIndex(ttlIndexName);
+        } catch (dropError) {
+          // Index might not exist, which is fine
+          console.warn(
+            `Could not drop TTL index ${ttlIndexName}:`,
+            dropError.message
+          );
+        }
       }
 
       // Create new TTL index with specific name
@@ -376,7 +499,7 @@ export default function softDeletePlugin(schema, options = {}) {
           deletedAt: new Date(),
         };
 
-        if (cascadeConfig.deletedBy && parentDoc.deletedBy) {
+        if (cascadeConfig.propagateDeletedBy && parentDoc.deletedBy) {
           updateData.deletedBy = parentDoc.deletedBy;
         }
 
@@ -409,6 +532,59 @@ export default function softDeletePlugin(schema, options = {}) {
 
     if (errors.length > 0 && !session) {
       throw new Error(`Cascade delete errors: ${errors.join(", ")}`);
+    }
+  }
+
+  async function executeCascadeRestore(parentDoc, session) {
+    const errors = [];
+
+    for (const cascadeConfig of cascadeDelete) {
+      try {
+        const RelatedModel = mongoose.model(cascadeConfig.model);
+        const query = {
+          [cascadeConfig.field]: parentDoc._id,
+          isDeleted: true,
+          // Only restore documents that were deleted by the same operation
+          deletedAt: { $gte: parentDoc.deletedAt },
+        };
+
+        const updateData = {
+          isDeleted: false,
+          deletedAt: null,
+          deletedBy: null,
+        };
+
+        const result = await RelatedModel.updateMany(query, updateData, {
+          session,
+        });
+
+        // Recursive cascade restore if specified
+        if (cascadeConfig.cascade) {
+          const relatedDocs = await RelatedModel.find({
+            [cascadeConfig.field]: parentDoc._id,
+          }).session(session);
+          for (const relatedDoc of relatedDocs) {
+            await executeCascadeRestore(relatedDoc, session);
+          }
+        }
+
+        console.log(
+          `Cascade restore successful for ${cascadeConfig.model}: ${result.modifiedCount} documents restored`
+        );
+      } catch (error) {
+        const errorMsg = `Cascade restore failed for ${cascadeConfig.model}: ${error.message}`;
+        console.error(errorMsg);
+        errors.push(errorMsg);
+
+        // Throw error to trigger transaction rollback
+        if (session) {
+          throw new Error(`Cascade restore failed: ${errorMsg}`);
+        }
+      }
+    }
+
+    if (errors.length > 0 && !session) {
+      throw new Error(`Cascade restore errors: ${errors.join(", ")}`);
     }
   }
 

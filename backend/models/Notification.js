@@ -5,6 +5,7 @@ import {
   NOTIFICATION_TYPES_ARRAY,
   NOTIFICATION_PRIORITY_ARRAY,
   NOTIFICATION_PRIORITY,
+  ENTITY_TYPES_ARRAY,
 } from "../constants/index.js";
 import CustomError from "../utils/CustomError.js";
 
@@ -25,19 +26,8 @@ const notificationSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: {
-        values: [
-          "task_assigned",
-          "task_updated",
-          "task_completed",
-          "task_overdue",
-          "comment_added",
-          "mention",
-          "activity_added",
-          "user_joined",
-          "system_alert",
-          "reminder",
-        ],
-        message: "Invalid notification type",
+        values: NOTIFICATION_TYPES_ARRAY,
+        message: `Type must be one of: ${NOTIFICATION_TYPES_ARRAY.join(", ")}`,
       },
       required: [true, "Notification type is required"],
     },
@@ -84,15 +74,10 @@ const notificationSchema = new mongoose.Schema(
       entityType: {
         type: String,
         enum: {
-          values: [
-            "BaseTask",
-            "TaskActivity",
-            "TaskComment",
-            "User",
-            "Department",
-            "Organization",
-          ],
-          message: "Invalid entity type",
+          values: ENTITY_TYPES_ARRAY,
+          message: `Entity type must be one of: ${ENTITY_TYPES_ARRAY.join(
+            ", "
+          )}`,
         },
       },
     },
@@ -435,5 +420,7 @@ notificationSchema.methods.isUrgent = function () {
 };
 
 const Notification = mongoose.model("Notification", notificationSchema);
+
+// TTL index will be managed by the centralized TTL configuration system
 
 export default Notification;

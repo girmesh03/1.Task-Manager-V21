@@ -84,22 +84,43 @@ export const initializeTTLIndexes = async () => {
 
       if (!ttlSeconds) {
         console.warn(`⚠️  No TTL configuration found for model: ${name}`);
+        results.push({
+          model: name,
+          status: "skipped",
+          reason: "No TTL configuration",
+        });
+        continue;
+      }
+
+      // Validate that the model has the ensureTTLIndex method
+      // Note: ensureTTLIndex is added by the softDeletePlugin
+      if (typeof model.ensureTTLIndex !== "function") {
+        console.warn(`⚠️  Model ${name} does not have ensureTTLIndex method`);
+        results.push({
+          model: name,
+          status: "skipped",
+          reason: "Missing ensureTTLIndex method",
+        });
         continue;
       }
 
       // Ensure TTL index using the model's static method
-      await model.ensureTTLIndex(ttlSeconds);
+      // @ts-ignore - ensureTTLIndex is added by softDeletePlugin
+      const indexResult = await model.ensureTTLIndex(ttlSeconds);
 
       const ttlDays = Math.round(ttlSeconds / (24 * 60 * 60));
-      console.log(
-        `✅ TTL index created for ${name}: ${ttlDays} days retention`
-      );
+      const statusMessage = indexResult.existing
+        ? `✅ TTL index verified for ${name}: ${ttlDays} days retention (existing)`
+        : `✅ TTL index created for ${name}: ${ttlDays} days retention (new)`;
+
+      console.log(statusMessage);
 
       results.push({
         model: name,
         ttlSeconds,
         ttlDays,
         status: "success",
+        existing: indexResult.existing || false,
       });
     } catch (error) {
       console.error(

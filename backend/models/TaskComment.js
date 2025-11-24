@@ -112,8 +112,8 @@ const taskCommentSchema = new mongoose.Schema(
 taskCommentSchema.plugin(mongoosePaginate);
 taskCommentSchema.plugin(softDeletePlugin, {
   cascadeDelete: [
-    { model: "TaskComment", field: "parentComment", deletedBy: true }, // Delete child comments
-    { model: "Attachment", field: "attachedTo", deletedBy: true },
+    { model: "TaskComment", field: "parentComment", propagateDeletedBy: true }, // Delete child comments
+    { model: "Attachment", field: "attachedTo", propagateDeletedBy: true },
   ],
 });
 
@@ -336,5 +336,7 @@ taskCommentSchema.methods.mentionsUser = function (userId) {
 };
 
 const TaskComment = mongoose.model("TaskComment", taskCommentSchema);
+
+// TTL index will be managed by the centralized TTL configuration system
 
 export default TaskComment;
